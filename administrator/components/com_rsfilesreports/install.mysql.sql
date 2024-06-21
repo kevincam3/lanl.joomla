@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 CREATE TABLE IF NOT EXISTS `#__lanl_rsfiles_downloaded`
 (
     `id`                    int(11) NOT NULL AUTO_INCREMENT,
@@ -68,4 +67,3 @@ CREATE TABLE IF NOT EXISTS `#__rsfilesreports_ip_to_country`
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8
   DEFAULT COLLATE = utf8_unicode_ci;
->>>>>>> 9fcd091 (fixed the data fetch issues for views and downlaod and other featureas)
