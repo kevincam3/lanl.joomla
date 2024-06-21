@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 <?xml version="1.0" encoding="utf-8"?>
 <extension version="3.1" type="plugin" group="webservices" method="upgrade">
     <name>Web Services - RSFilesReports</name>
@@ -16,3 +17,23 @@
         <folder>src</folder>
     </files>
 </extension>
+=======
+<?xml version="1.0" encoding="utf-8"?>
+<extension version="3.1" type="plugin" group="webservices" method="upgrade">
+    <name>Web Services - RSFilesReports</name>
+    <author>BK Design Solutions</author>
+    <creationDate>June 2024</creationDate>
+    <copyright>Copyright (C) 2024 BK Design Solutions</copyright>
+    <license>Private</license>
+    <authorEmail>bh@bkdesignsolutions.com</authorEmail>
+    <authorUrl>https://bkdesignsolutions.com</authorUrl>
+    <version>1.0.7</version>
+    <description>API for RSFiles Reports Component</description>
+    <namespace path="src">TCM\Plugin\WebServices\RSFilesReports</namespace>
+
+    <files>
+        <folder plugin="rsfilesreports">services</folder>
+        <folder>src</folder>
+    </files>
+</extension>
+>>>>>>> 9fcd091 (fixed the data fetch issues for views and downlaod and other featureas)

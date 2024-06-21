@@ -5,6 +5,7 @@ use Joomla\CMS\Factory;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Response\JsonResponse;
 
+/** @noinspection PhpUnused */
 class PlgSystemCustomapi extends CMSPlugin
 {
 	public function onAfterRoute(): void
@@ -13,16 +14,10 @@ class PlgSystemCustomapi extends CMSPlugin
 		{
 			$app = Factory::getApplication();
 
-
+			// Check if it's the frontend and a custom API request
 			if ($app->isClient('site') && $app->input->get('customapi', false))
 			{
-				//$this->addCorsHeaders();
-
-				// Handle OPTIONS request for preflight check
-				if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS')
-				{
-					$app->close();
-				}
+				$this->addCorsHeaders();
 				$this->handleApiRequest();
 				$app->close();
 			}
@@ -42,8 +37,7 @@ class PlgSystemCustomapi extends CMSPlugin
 
 	protected function handleApiRequest(): void
 	{
-		try
-		{
+		try{
 			$input = Factory::getApplication()->input;
 			$task  = $input->getCmd('task');
 
@@ -65,9 +59,7 @@ class PlgSystemCustomapi extends CMSPlugin
 					echo new JsonResponse(null, 'Invalid task', true);
 					break;
 			}
-		}
-		catch (Exception $e)
-		{
+		} catch (Exception $e) {
 			echo new JsonResponse(null, $e->getMessage(), true);
 		}
 	}
@@ -76,11 +68,13 @@ class PlgSystemCustomapi extends CMSPlugin
 	{
 		try
 		{
-			$db        = Factory::getDbo();
+			$db = Factory::getContainer()->get('DatabaseDriver');
+
 			$input     = Factory::getApplication()->input;
 			$startDate = $db->escape($input->getString('startDate', ''));
 			$endDate   = $db->escape($input->getString('endDate', ''));
 
+			// Set default dates if not provided
 			if (empty($startDate))
 			{
 				$startDate = '1970-01-01';
@@ -90,41 +84,46 @@ class PlgSystemCustomapi extends CMSPlugin
 				$endDate = date('Y-m-d');
 			}
 
-			$subQueryHits = $db->getQuery(true)
-				->select('v.file_id, COUNT(v.file_id) AS totalHits')
-				->from($db->quoteName('lanl4_lanl_rsfiles_viewed', 'v'))
-				->where('v.date_viewed BETWEEN ' . $db->quote($startDate) . ' AND ' . $db->quote($endDate))
-				->group('v.file_id');
+			// Subquery for total hits with date range
+			$subQueryHits = $db->getQuery(true);
+			$subQueryHits
+				->select($db->qn(array('file_id', 'COUNT(file_id) AS totalHits')))
+				->from($db->qn('#__lanl_rsfiles_viewed'))
+				->where($db->qn('date_viewed') . ' BETWEEN ' . $db->q($startDate) . ' AND ' . $db->q($endDate))
+				->group($db->q('file_id'));
 
-			$subQueryDownloads = $db->getQuery(true)
-				->select('d.file_id, COUNT(d.file_id) AS totalDownloads')
-				->from($db->quoteName('lanl4_lanl_rsfiles_downloaded', 'd'))
-				->where('d.date_downloaded BETWEEN ' . $db->quote($startDate) . ' AND ' . $db->quote($endDate))
-				->group('d.file_id');
+			// Subquery for total downloads with date range
+			$subQueryDownloads = $db->getQuery(true);
+			$subQueryDownloads
+				->select($db->qn(array('file_id', 'COUNT(file_id) AS totalDownloads')))
+				->from($db->qn('#__lanl_rsfiles_downloaded'))
+				->where($db->qn('date_downloaded') . ' BETWEEN ' . $db->q($startDate) . ' AND ' . $db->q($endDate))
+				->group($db->q('file_id'));
 
+			// Main query to fetch files data
 			$query = $db->getQuery(true)
-				->select('f.IdFile, f.FileName, f.FilePath, f.DateAdded,
-                      COALESCE(h.totalHits, 0) AS totalHits,
+				->select('f.IdFile, f.FileName, f.FilePath, f.DateAdded, 
+                      COALESCE(h.totalHits, 0) AS totalHits, 
                       COALESCE(dl.totalDownloads, 0) AS totalDownloads')
-				->from($db->quoteName('lanl4_rsfiles_files', 'f'))
+				->from($db->qn('lanl4_rsfiles_files', 'f'))
 				->leftJoin('(' . $subQueryHits . ') AS h ON h.file_id = f.IdFile')
 				->leftJoin('(' . $subQueryDownloads . ') AS dl ON dl.file_id = f.IdFile');
 
+			// Apply sorting
 			$sortBy = $db->escape($input->getString('sortBy', ''));
 			if ($sortBy == 'mostViewed')
 			{
-				$query->where('COALESCE(h.totalHits, 0) >= 1');
-				$query->order('totalHits DESC');
+				$query->order($db->qn('totalHits') . ' DESC');
 			}
 			elseif ($sortBy == 'mostDownloaded')
 			{
-				$query->where('COALESCE(dl.totalDownloads, 0) >= 1');
-				$query->order('totalDownloads DESC');
+				$query->order($db->qn('totalDownloads') . ' DESC');
 			}
 
 			$db->setQuery($query);
 			$files = $db->loadObjectList();
 
+			// Process the results to adjust FileName and Category
 			foreach ($files as $file)
 			{
 				$filePath     = $file->FilePath;
@@ -136,14 +135,17 @@ class PlgSystemCustomapi extends CMSPlugin
 					$categoryPath = substr($filePath, 0, $lastSlashPos);
 					$lastDotPos   = strrpos($fileName, '.');
 
+					// Check if the fileName contains a dot and thus a file extension
 					if ($lastDotPos === false)
 					{
 						$file->FileName = '';
-						$file->Category = $fileName;
+						$file->Category = $fileName;  // Set Category to the name after the last "/" when no extension
 					}
 					else
 					{
-						$file->FileName     = $fileName;
+						$file->FileName = $fileName;
+
+						// Extract the Category
 						$secondLastSlashPos = strrpos($categoryPath, '/');
 						if ($secondLastSlashPos !== false)
 						{
@@ -157,8 +159,8 @@ class PlgSystemCustomapi extends CMSPlugin
 				}
 				else
 				{
-					$fileName       = $filePath;
-					$file->FileName = $fileName;
+					$file->FileName = '';
+					$file->Category = '';
 				}
 			}
 
@@ -174,47 +176,50 @@ class PlgSystemCustomapi extends CMSPlugin
 	{
 		try
 		{
-			$db        = Factory::getDbo();
+			$db        = Factory::getContainer()->get('DatabaseDriver');
 			$input     = Factory::getApplication()->input;
 			$startDate = $db->escape($input->getString('startDate', '1970-01-01'));
 			$endDate   = $db->escape($input->getString('endDate', date('Y-m-d') . ' 23:59:59'));
 			$sortBy    = $db->escape($input->getString('sortBy', ''));
 
+			// Subquery for total hits with date range
 			$subQueryHits = $db->getQuery(true)
-				->select('v.file_id, COUNT(v.file_id) AS totalHits')
-				->from($db->quoteName('lanl4_lanl_rsfiles_viewed', 'v'))
-				->where('v.date_viewed BETWEEN ' . $db->quote($startDate) . ' AND ' . $db->quote($endDate))
-				->group('v.file_id');
+				->select($db->qn(array('file_id, COUNT(file_id) AS totalHits')))
+				->from($db->qn('#__lanl_rsfiles_viewed'))
+				->where('date_viewed BETWEEN ' . $db->q($startDate) . ' AND ' . $db->q($endDate))
+				->group($db->q('file_id'));
 
+			// Subquery for total downloads with date range
 			$subQueryDownloads = $db->getQuery(true)
-				->select('d.file_id, COUNT(d.file_id) AS totalDownloads')
-				->from($db->quoteName('lanl4_lanl_rsfiles_downloaded', 'd'))
-				->where('d.date_downloaded BETWEEN ' . $db->quote($startDate) . ' AND ' . $db->quote($endDate))
-				->group('d.file_id');
+				->select('file_id, COUNT(file_id) AS totalDownloads')
+				->from($db->qn('#__lanl_rsfiles_downloaded'))
+				->where($db->qn('date_downloaded') . ' BETWEEN ' . $db->q($startDate) . ' AND ' . $db->q($endDate))
+				->group('file_id');
 
+			// Main query to fetch files data
 			$query = $db->getQuery(true)
 				->select('f.FilePath, 
-                          COALESCE(SUM(h.totalHits), 0) AS totalHits, 
-                          COALESCE(SUM(dl.totalDownloads), 0) AS totalDownloads')
-				->from($db->quoteName('lanl4_rsfiles_files', 'f'))
+                      COALESCE(SUM(h.totalHits), 0) AS totalHits, 
+                      COALESCE(SUM(dl.totalDownloads), 0) AS totalDownloads')
+				->from($db->qn('#__rsfiles_files', 'f'))
 				->leftJoin('(' . $subQueryHits . ') AS h ON h.file_id = f.IdFile')
 				->leftJoin('(' . $subQueryDownloads . ') AS dl ON dl.file_id = f.IdFile')
 				->group('f.FilePath');
 
+			// Apply sorting
 			if ($sortBy == 'mostViewed')
 			{
-				$query->having('totalHits >= 1');
 				$query->order('totalHits DESC');
 			}
 			elseif ($sortBy == 'mostDownloaded')
 			{
-				$query->having('totalDownloads >= 1');
 				$query->order('totalDownloads DESC');
 			}
 
 			$db->setQuery($query);
 			$files = $db->loadAssocList();
 
+			// Aggregate categories
 			$categoryMap = [];
 
 			foreach ($files as $file)
@@ -228,12 +233,14 @@ class PlgSystemCustomapi extends CMSPlugin
 					$categoryPath = substr($filePath, 0, $lastSlashPos);
 					$lastDotPos   = strrpos($fileName, '.');
 
+					// Check if the fileName contains a dot and thus a file extension
 					if ($lastDotPos === false)
 					{
-						$categoryName = $fileName;
+						$categoryName = $fileName;  // Set Category to the name after the last "/" when no extension
 					}
 					else
 					{
+						// Extract the Category
 						$secondLastSlashPos = strrpos($categoryPath, '/');
 						if ($secondLastSlashPos !== false)
 						{
@@ -245,11 +252,13 @@ class PlgSystemCustomapi extends CMSPlugin
 						}
 					}
 
+					// Skip if category name is empty
 					if (empty($categoryName))
 					{
 						continue;
 					}
 
+					// Aggregate totals
 					if (isset($categoryMap[$categoryName]))
 					{
 						$categoryMap[$categoryName]['totalHits']      += (int) $file['totalHits'];
@@ -266,6 +275,7 @@ class PlgSystemCustomapi extends CMSPlugin
 				}
 			}
 
+			// Convert map to list
 			$aggregatedCategories = array_values($categoryMap);
 
 			echo new JsonResponse($aggregatedCategories);
@@ -281,7 +291,7 @@ class PlgSystemCustomapi extends CMSPlugin
 		try
 		{
 			$input           = Factory::getApplication()->input;
-			$fileId          = $input->json->getInt('file_id');
+			$fileId          = $input->getInt('file_id');
 			$viewerIpAddress = $input->server->get('REMOTE_ADDR');
 			$viewerCountry   = $this->getCountryFromIp($viewerIpAddress);
 
@@ -290,11 +300,11 @@ class PlgSystemCustomapi extends CMSPlugin
 				$viewerCountry = 'Unknown';
 			}
 
-			$db    = Factory::getDbo();
+			$db    = Factory::getContainer()->get('DatabaseDriver');
 			$query = $db->getQuery(true)
-				->insert($db->quoteName('lanl4_lanl_rsfiles_viewed'))
-				->columns(array($db->quoteName('file_id'), $db->quoteName('viewer_ip_address'), $db->quoteName('viewer_country'), $db->quoteName('date_viewed')))
-				->values(implode(',', array($db->quote($fileId), $db->quote($viewerIpAddress), $db->quote($viewerCountry), 'NOW()')));
+				->insert($db->qn('#__lanl_rsfiles_viewed'))
+				->columns(array($db->qn('file_id'), $db->qn('viewer_ip_address'), $db->qn('viewer_country'), $db->qn('date_viewed')))
+				->values(implode(',', array($db->q($fileId), $db->q($viewerIpAddress), $db->q($viewerCountry), 'NOW()')));
 
 			$db->setQuery($query);
 			$db->execute();
@@ -312,7 +322,7 @@ class PlgSystemCustomapi extends CMSPlugin
 		try
 		{
 			$input               = Factory::getApplication()->input;
-			$fileId              = $input->json->getInt('file_id');
+			$fileId              = $input->getInt('file_id');
 			$downloaderIpAddress = $input->server->get('REMOTE_ADDR');
 			$downloaderCountry   = $this->getCountryFromIp($downloaderIpAddress);
 
@@ -321,11 +331,11 @@ class PlgSystemCustomapi extends CMSPlugin
 				$downloaderCountry = 'Unknown';
 			}
 
-			$db    = Factory::getDbo();
+			$db    = Factory::getContainer()->get('DatabaseDriver');
 			$query = $db->getQuery(true)
-				->insert($db->quoteName('lanl4_lanl_rsfiles_downloaded'))
-				->columns(array($db->quoteName('file_id'), $db->quoteName('downloader_ip_address'), $db->quoteName('downloader_country'), $db->quoteName('date_downloaded')))
-				->values(implode(',', array($db->quote($fileId), $db->quote($downloaderIpAddress), $db->quote($downloaderCountry), 'NOW()')));
+				->insert($db->qn('#__lanl_rsfiles_downloaded'))
+				->columns(array($db->qn('file_id'), $db->qn('downloader_ip_address'), $db->qn('downloader_country'), $db->qn('date_downloaded')))
+				->values(implode(',', array($db->q($fileId), $db->q($downloaderIpAddress), $db->q($downloaderCountry), 'NOW()')));
 
 			$db->setQuery($query);
 			$db->execute();
@@ -342,12 +352,12 @@ class PlgSystemCustomapi extends CMSPlugin
 	{
 		try
 		{
-			$db    = Factory::getDbo();
+			$db    = Factory::getContainer()->get('DatabaseDriver');
 			$query = $db->getQuery(true);
 
 			$query->select('country_code')
-				->from($db->quoteName('lanl4_rsfilesreports_ip_to_country'))
-				->where($db->quote($ipAddress) . ' BETWEEN ip_start AND ip_end');
+				->from($db->qn('ip_to_country'))
+				->where($db->q($ipAddress) . ' BETWEEN ip_start AND ip_end');
 
 			$db->setQuery($query);
 
@@ -355,10 +365,8 @@ class PlgSystemCustomapi extends CMSPlugin
 		}
 		catch (Exception $e)
 		{
+			echo new JsonResponse(null, $e->getMessage(), true);
 			return 'Unknown';
 		}
 	}
 }
-
-?>
-
