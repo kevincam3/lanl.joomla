@@ -1,14 +1,11 @@
 <?php
-// no direct access
+// No direct access
 defined('_JEXEC') or die;
 
-use Joomla\CMS\Table\Table;
 use Joomla\CMS\Plugin\CMSPlugin;
 use Joomla\CMS\Factory;
 use Joomla\CMS\Uri\Uri;
 use Joomla\CMS\Application\SiteApplication;
-
-Table::addIncludePath(__DIR__ . '/tables');
 
 class PlgSystemMenuFileCheck extends CMSPlugin
 {
@@ -20,7 +17,8 @@ class PlgSystemMenuFileCheck extends CMSPlugin
         $this->db = Factory::getDbo();
     }
 
-    public function onAfterRoute(): bool {
+    public function onAfterRoute(): bool
+    {
         $app = Factory::getApplication();
 
         // Check that we are on the frontend of the site
@@ -30,12 +28,12 @@ class PlgSystemMenuFileCheck extends CMSPlugin
             Uri::current(); // It's very strange, but without this line at least Joomla 3 fails to fulfill the task
             $url = Uri::getInstance();
             $router = SiteApplication::getRouter(); // get router
-            $urlQueryParams = $router->parse($url); // Get the real joomla query as an array - parse current joomla link
+            $urlQueryParams = $router->parse($url); // Get the real Joomla query as an array - parse current Joomla link
 
             // Check if the url has an Itemid so we know it could be a menu link
             if (isset($urlQueryParams['Itemid']))
             {
-                // extract the Itemid value for later use
+                // Extract the Itemid value for later use
                 $Itemid = $urlQueryParams['Itemid'];
 
                 // Unset Itemid because link url returned from JMenu doesn't include it and we need to compare it.
@@ -49,27 +47,80 @@ class PlgSystemMenuFileCheck extends CMSPlugin
                 {
                     $menuTitle = $menuItem->title;
 
-                    // Query the rsfiles_files table to check if any file paths match the menu title
+                    // Query the rsfiles_files table to get the file paths
                     $query = $this->db->getQuery(true)
                         ->select($this->db->quoteName('filepath'))
-                        ->from($this->db->quoteName('#__rsfiles_files'))
-                        ->where('SUBSTRING_INDEX(' . $this->db->quoteName('filepath') . ', "/", 1) = ' . $this->db->quote($menuTitle));
+                        ->from($this->db->quoteName('#__rsfiles_files'));
 
-                    $this->db->setQuery($query);
-                    $result = $this->db->loadResult();
+                    $this->db->setQuery($query);    
+                    $files = $this->db->loadAssocList();
 
-                    if ($result) {
-                        // Get downloader IP address and country
-                        $downloader_ip_address = $app->input->server->get('REMOTE_ADDR');
-                        $downloader_country = $this->getCountryFromIp($downloader_ip_address);
+                    // Extract categories and aggregate data
+                    $processedCategories = [];
 
-                        // Always insert a new row in the rsfiles_menuhits table for every click
-                        $query = $this->db->getQuery(true)
-                            ->insert($this->db->quoteName('#__lanl_rsfiles_menuhits'))
-                            ->columns(array($this->db->quoteName('menu_id'), $this->db->quoteName('menu_title'), $this->db->quoteName('file_path'), $this->db->quoteName('country')))
-                            ->values((int)$Itemid . ', ' . $this->db->quote($menuTitle) . ', ' . $this->db->quote($result) . ', ' . $this->db->quote($downloader_country));
-                        $this->db->setQuery($query);
-                        $this->db->execute();
+                    foreach ($files as $file)
+                    {
+                        $filePath     = $file['filepath'];
+                        $lastSlashPos = strrpos($filePath, '/');
+
+                        if ($lastSlashPos !== false)
+                        {
+                            $fileName     = substr($filePath, $lastSlashPos + 1);
+                            $categoryPath = substr($filePath, 0, $lastSlashPos);
+                            $lastDotPos   = strrpos($fileName, '.');
+
+                            // Check if the fileName contains a dot and thus a file extension
+                            if ($lastDotPos === false)
+                            {
+                                $categoryName = $fileName;  // Set Category to the name after the last "/" when no extension
+                            }
+                            else
+                            {
+                                // Extract the Category
+                                $secondLastSlashPos = strrpos($categoryPath, '/');
+                                if ($secondLastSlashPos !== false)
+                                {
+                                    $categoryName = substr($categoryPath, $secondLastSlashPos + 1);
+                                }
+                                else
+                                {
+                                    $categoryName = $categoryPath;
+                                }
+                            }
+
+                            // Skip if category name is empty
+                            if (empty($categoryName))
+                            {
+                                continue;
+                            }
+
+                            // Normalize category name and menu title for comparison
+                            $normalizedCategoryName = strtolower(trim($categoryName));
+                            $normalizedMenuTitle = strtolower(trim($menuTitle));
+
+                            // Check if the normalized category name matches the normalized menu title
+                            if ($normalizedCategoryName === $normalizedMenuTitle)
+                            {
+                                // Check if this category has already been processed
+                                if (!in_array($normalizedCategoryName, $processedCategories))
+                                {
+                                    // Get downloader IP address and country
+                                    $downloaderIpAddress = $app->input->server->get('REMOTE_ADDR');
+                                    $downloaderCountry = $this->getCountryFromIp($downloaderIpAddress);
+
+                                    // Insert a new row in the rsfiles_menuhits table
+                                    $query = $this->db->getQuery(true)
+                                        ->insert($this->db->quoteName('#__lanl_rsfiles_menuhits'))
+                                        ->columns(array($this->db->quoteName('menu_id'), $this->db->quoteName('menu_title'), $this->db->quoteName('file_path'), $this->db->quoteName('country'), $this->db->quoteName('viewer_ip_address')))
+                                        ->values((int)$Itemid . ', ' . $this->db->quote($menuTitle) . ', ' . $this->db->quote($categoryName) . ', ' . $this->db->quote($downloaderCountry) . ', ' . $this->db->quote($downloaderIpAddress));
+                                    $this->db->setQuery($query);
+                                    $this->db->execute();
+
+                                    // Mark this category as processed
+                                    $processedCategories[] = $normalizedCategoryName;
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -82,22 +133,20 @@ class PlgSystemMenuFileCheck extends CMSPlugin
     {
         try
         {
-            $db    = Factory::getContainer()->get('DatabaseDriver');
-            $query = $db->getQuery(true);
+            $query = $this->db->getQuery(true);
             $query
-                ->select($db->quoteName('country_code'))
-                ->from($db->quoteName('#__rsfilesreports_ip_to_country'))
-                ->where($db->quote($ipAddress) . ' BETWEEN ip_start AND ip_end');
+                ->select($this->db->quoteName('country_code'))
+                ->from($this->db->quoteName('#__rsfilesreports_ip_to_country'))
+                ->where($this->db->quote($ipAddress) . ' BETWEEN ip_start AND ip_end');
 
-            $db->setQuery($query);
+            $this->db->setQuery($query);
 
-            return $db->loadResult();
+            return $this->db->loadResult();
         }
         catch (\Exception $e)
         {
-            echo new JsonResponse(null, $e->getMessage(), true);
-            Factory::getApplication()->close();
-
+            // Log the error and return null
+            Factory::getApplication()->enqueueMessage($e->getMessage(), 'error');
             return null;
         }
     }

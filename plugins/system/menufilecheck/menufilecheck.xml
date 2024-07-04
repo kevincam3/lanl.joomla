@@ -7,11 +7,10 @@
     <license>Private</license>
     <authorEmail>bh@bkdesignsolutions.com</authorEmail>
     <authorUrl>https://bkdesignsolutions.com</authorUrl>
-    <version>1.0.0</version>
+    <version>1.0.9</version>
     <description>Custom plugin to check if menu title matches file paths in the rsfiles_files table</description>
     <files>
         <folder>tables</folder>
-        <filename>tables/menufilecheck.php</filename>
         <filename plugin="menufilecheck">menufilecheck.php</filename>
         <filename>install.mysql.sql</filename>
     </files>
@@ -20,9 +19,5 @@
             <file driver="mysql" charset="utf8">install.mysql.sql</file>
         </sql>
     </install>
-    <uninstall>
-        <sql>
-            <file driver="mysql" charset="utf8">uninstall.mysql.sql</file>
-        </sql>
-    </uninstall>
+   
 </extension>

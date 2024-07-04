@@ -25,7 +25,8 @@ class MenuController extends ApiController
             $input = $this->app->input;
             $startDate = $input->get('startDate', '1970-01-01', 'string');
             $endDate = $input->get('endDate', date('Y-m-d') . ' 23:59:59', 'string');
-            $sortBy = $input->get('sortBy', '', 'string');
+            $sortBy = $input->get('sortBy', 'menu_id', 'string'); // Default sort
+
 
             $db = Factory::getContainer()->get('DatabaseDriver');
             $query = $db->getQuery(true);
@@ -36,7 +37,9 @@ class MenuController extends ApiController
                 ->select('COUNT(' . $db->quoteName('id') . ') AS total_views')
                 ->from($db->quoteName('#__lanl_rsfiles_menuhits'))
                 ->where($db->quoteName('date_viewed') . ' BETWEEN ' . $db->quote($startDate) . ' AND ' . $db->quote($endDate))
-                ->group($db->quoteName('menu_id'));
+                ->group($db->quoteName('menu_id'))
+                ->order($db->quoteName($sortBy)); // Use the sortBy parameter
+
 
             // Adding sorting if required
             if ($sortBy === 'mostViewed') {
